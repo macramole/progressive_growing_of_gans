@@ -6,7 +6,11 @@ import tensorflow as tf
 import PIL.Image
 import scipy
 
-SNAPSHOT_NUM = "006008"
+SNAPSHOT_NUM = "005407"
+#PATH_DATA = "/media/macramole/stuff/Data/pgan/"
+#PATH_DATA = "/media/macramole/stuff/Data/pgan/1/"
+PATH_DATA = "/media/macramole/stuff/Data/pgan/2-latent2/"
+
 
 #%%
 
@@ -14,7 +18,7 @@ SNAPSHOT_NUM = "006008"
 tf.InteractiveSession()
 
 # Import official CelebA-HQ networks.
-with open('/media/macramole/stuff/Data/pgan/network-snapshot-' + SNAPSHOT_NUM + '.pkl', 'rb') as file:
+with open(PATH_DATA + 'network-snapshot-' + SNAPSHOT_NUM + '.pkl', 'rb') as file:
     G, D, Gs = pickle.load(file)
 
 #%%
@@ -35,7 +39,7 @@ images = images.transpose(0, 2, 3, 1) # NCHW => NHWC
 
 # Save images as PNG.
 for idx in range(images.shape[0]):
-    PIL.Image.fromarray(images[idx], 'RGB').save('/media/macramole/stuff/Data/pgan/' + SNAPSHOT_NUM + '/img%d.png' % idx)
+    PIL.Image.fromarray(images[idx], 'RGB').save(PATH_DATA + '/img%d.png' % idx)
 
 #%% generate_interpolation_video
     
@@ -51,7 +55,7 @@ mp4_fps=30
 mp4_bitrate='16M'
 image_shrink=1
 
-mp4 = '/media/macramole/stuff/Data/pgan/' + SNAPSHOT_NUM + '/video.mp4'
+mp4 = PATH_DATA + SNAPSHOT_NUM + '/video.mp4'
 num_frames = int(np.rint(duration_sec * mp4_fps))
 random_state = np.random.RandomState(random_seed)
 
