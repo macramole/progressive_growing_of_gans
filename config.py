@@ -18,8 +18,9 @@ class EasyDict(dict):
 #----------------------------------------------------------------------------
 # Paths.
 
-data_dir = '/data/Imagen/yo/'
-result_dir = '/data/results'
+#data_dir = '/data/Imagen/yo/'
+data_dir = '/data/Imagen/cuadros_piel/'
+result_dir = '/data/results/'
 
 #----------------------------------------------------------------------------
 # TensorFlow options.
@@ -39,7 +40,8 @@ env.TF_CPP_MIN_LOG_LEVEL                        = '1'       # 0 (default) = Prin
 desc        = 'pgan'                                        # Description string included in result subdir name.
 random_seed = 1000                                          # Global random seed.
 dataset     = EasyDict()                                    # Options for dataset.load_dataset().
-train       = EasyDict(func='train.train_progressive_gan')  # Options for main training func.
+#train       = EasyDict(func='train.train_progressive_gan')  # Options for main training func.
+train       = EasyDict(func='train.train_progressive_gan', resume_run_id="/data/results/010-pgan-cuadrosPiel-preset-v2-1gpu-fp32-latent512-lod256-norepeat/network-snapshot-002200.pkl")  # Options for main training func.
 G           = EasyDict(func='networks.G_paper')             # Options for generator network.
 D           = EasyDict(func='networks.D_paper')             # Options for discriminator network.
 G_opt       = EasyDict(beta1=0.0, beta2=0.99, epsilon=1e-8) # Options for generator optimizer.
@@ -47,13 +49,17 @@ D_opt       = EasyDict(beta1=0.0, beta2=0.99, epsilon=1e-8) # Options for discri
 G_loss      = EasyDict(func='loss.G_wgan_acgan')            # Options for generator loss.
 D_loss      = EasyDict(func='loss.D_wgangp_acgan')          # Options for discriminator loss.
 sched       = EasyDict()                                    # Options for train.TrainingSchedule.
-grid        = EasyDict(size='1080p', layout='random')       # Options for train.setup_snapshot_image_grid().
+grid        = EasyDict(size='4k', layout='random')       # Options for train.setup_snapshot_image_grid().
 
 # Dataset (choose one).
 #desc += '-celebahq';            dataset = EasyDict(tfrecord_dir='celebahq'); train.mirror_augment = True
 #desc += '-celeba';              dataset = EasyDict(tfrecord_dir='celeba'); train.mirror_augment = True
 #desc += '-cifar10';             dataset = EasyDict(tfrecord_dir='cifar10')
-desc += '-yo';             dataset = EasyDict(tfrecord_dir='512x512_tfrecord')
+
+#desc += '-yo';                   dataset = EasyDict(tfrecord_dir='512x512_tfrecord')
+#desc += '-yoFlores';             dataset = EasyDict(tfrecord_dir='512x512_flores_tfrecord')
+desc += '-cuadrosPiel';           dataset = EasyDict(tfrecord_dir='512x512_all_tf')
+
 #desc += '-cifar100';            dataset = EasyDict(tfrecord_dir='cifar100')
 #desc += '-svhn';                dataset = EasyDict(tfrecord_dir='svhn')
 #desc += '-mnist';               dataset = EasyDict(tfrecord_dir='mnist')
@@ -114,9 +120,11 @@ desc += '-fp32'; sched.max_minibatch_per_gpu = {256: 16, 512: 8, 1024: 4}
 #desc += '-fp16'; G.dtype = 'float16'; D.dtype = 'float16'; G.pixelnorm_epsilon=1e-4; G_opt.use_loss_scaling = True; D_opt.use_loss_scaling = True; sched.max_minibatch_per_gpu = {512: 16, 1024: 8}
 
 # Latent Space size
-desc += "-latent2"; G.latent_size = 2
+desc += "-latent512"; G.latent_size = 512
 
-desc += "-lod32"; sched.lod_initial_resolution = 32
+desc += "-lod512"; sched.lod_initial_resolution = 512  # Image resolution used at the beginning.
+
+train.network_snapshot_ticks = 2 #cada cuantos ticks un snapshot
 
 # Disable individual features.
 #desc += '-nogrowing'; sched.lod_initial_resolution = 1024; sched.lod_training_kimg = 0; sched.lod_transition_kimg = 0; train.total_kimg = 10000
@@ -124,7 +132,7 @@ desc += "-lod32"; sched.lod_initial_resolution = 32
 #desc += '-nowscale'; G.use_wscale = False; D.use_wscale = False
 #desc += '-noleakyrelu'; G.use_leakyrelu = False
 #desc += '-nosmoothing'; train.G_smoothing = 0.0
-#desc += '-norepeat'; train.minibatch_repeats = 1
+desc += '-norepeat'; train.minibatch_repeats = 1
 #desc += '-noreset'; train.reset_opt_for_new_lod = False
 
 # Special modes.
@@ -138,7 +146,7 @@ desc += "-lod32"; sched.lod_initial_resolution = 32
 # Utility scripts.
 # To run, uncomment the appropriate line and launch train.py.
 
-train = EasyDict(func='util_scripts.generate_fake_images', run_id=23, num_pngs=10); num_gpus = 1; desc = 'fake-images-' + str(train.run_id)
+#train = EasyDict(func='util_scripts.generate_fake_images', run_id=23, num_pngs=10); num_gpus = 1; desc = 'fake-images-' + str(train.run_id)
 #train = EasyDict(func='util_scripts.generate_fake_images', run_id=23, grid_size=[15,8], num_pngs=10, image_shrink=4); num_gpus = 1; desc = 'fake-grids-' + str(train.run_id)
 #train = EasyDict(func='util_scripts.generate_interpolation_video', run_id=23, grid_size=[1,1], duration_sec=60.0, smoothing_sec=1.0); num_gpus = 1; desc = 'interpolation-video-' + str(train.run_id)
 #train = EasyDict(func='util_scripts.generate_training_video', run_id=23, duration_sec=20.0); num_gpus = 1; desc = 'training-video-' + str(train.run_id)
