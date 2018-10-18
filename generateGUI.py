@@ -10,6 +10,7 @@ Created on Tue Aug  7 14:35:21 2018
 
 import os
 import tkinter as tk
+import tkinter.ttk as ttk
 from tkinter import *
 from tkinter import filedialog
 #from tkinter import Scale
@@ -37,6 +38,20 @@ PATH_RESULT = "./generateResult/"
 lastX = 0
 lastY = 0
 
+selectionRectangle = None
+selectionRectangleOriginalCoords = None
+pointsMoveOriginalCoords = None
+COLOR_POINT = "green"
+COLOR_SELECTED = "red"
+POINT_RADIUS = 2
+
+canvas = None
+pointList = None
+
+recording = False
+recordingCurrentFrame = 0
+
+arrayImage = None
 #%%
 
 def init():
@@ -67,61 +82,86 @@ def generateImage():
     if len(inputVector) == 0 :
         inputVector = np.random.normal(0, 1, (1, SIZE_LATENT_SPACE))
 
-    img = generateFromGAN( np.array(inputVector) )#noise)
+    img = generateFromGAN( inputVector )#noise)
     img = img[0]
 
-    photo = ImageTk.PhotoImage(image=Image.fromarray(img, 'RGB'))
+    # photo = ImageTk.PhotoImage(image=Image.fromarray(img, 'RGB'))
+    photo = Image.fromarray(img, 'RGB')
     return photo
 
 def updateImage(newInputVector = None):
-    global inputVector
+    global inputVector, recordingCurrentFrame, arrayImage
 
     # inputVector = []
     if not type(newInputVector) is np.ndarray:
-        if newInputVector == None:
-            x = mapValue(lastX, 0, OUTPUT_RESOLUTION, -3, 3)
-            y = mapValue(lastY, 0, OUTPUT_RESOLUTION, -3, 3)
-
-            inputVector[0][sliderX.get()] = x
-            inputVector[0][sliderY.get()] = y
-        else :
-            inputVector = np.random.normal(0, 1, (1, SIZE_LATENT_SPACE))
+        inputVector = np.random.normal(0, 1, (1, SIZE_LATENT_SPACE))
+        drawAllPointsPair()
     else:
         inputVector = newInputVector
 
     # inputVector = np.array(inputVector).reshape((1,SIZE_LATENT_SPACE))
 
-    drawAllPointsPair()
-
-    photo = generateImage()
+    arrayImage = generateImage()
+    photo = ImageTk.PhotoImage(image=arrayImage)
     mainImage.configure(image=photo)
     mainImage.image = photo
 
+    if recording:
+        arrayImage.save( "%s/%05d.png" % (PATH_RESULT,recordingCurrentFrame) )
+        recordingCurrentFrame+=1
+
+def xyClicked(e):
+    global pointsMoveOriginalCoords
+
+    pointsMoveOriginalCoords = None
+    canvas.itemconfig( "selected", fill=COLOR_POINT )
+    canvas.dtag("selected")
 def xyMoved(e):
+    global selectionRectangle, selectionRectangleOriginalCoords, pointsMoveOriginalCoords
 
-    global lastX, lastY
-    x = 0
-    y = 0
+    if selectionRectangle is None:
 
-    if type(e) is dict:
-        x = e["x"]
-        y = e["y"]
+        if len( canvas.find_withtag("selected") ) == 0:
+            selectionRectangle = canvas.create_rectangle(e.x, e.y, e.x + 5, e.y + 5, outline = "white")
+            selectionRectangleOriginalCoords = (e.x, e.y)
+        else:
+            if pointsMoveOriginalCoords is None:
+                pointsMoveOriginalCoords = (e.x, e.y)
+            else:
+                canvas.move("selected", e.x - pointsMoveOriginalCoords[0], e.y - pointsMoveOriginalCoords[1])
+                pointsMoveOriginalCoords = (e.x, e.y)
+                pointsMoved()
+
     else:
-        x = e.x
-        y = e.y
+        x0 = selectionRectangleOriginalCoords[0]
+        y0 = selectionRectangleOriginalCoords[1]
+        x1 = e.x
+        y1 = e.y
+        canvas.coords(selectionRectangle, x0, y0, x1, y1)
 
-    lastX = x
-    lastY = y
-    updateImage()
+        canvas.itemconfig( "selected", fill=COLOR_POINT )
+        canvas.dtag("selected")
+        canvas.addtag_overlapping("selected", x0, y0, x1, y1 )
+        canvas.dtag(selectionRectangle, "selected")
+        canvas.itemconfig( "selected", fill=COLOR_SELECTED )
+def xyMovedFinished(e):
+    global selectionRectangle
 
-    # lblCurrentPoint.config(text = str(inputVector[0]))
+    canvas.delete(selectionRectangle)
+    selectionRectangle = None
+    pointsMoveOriginalCoords = None
 
+def pointsMoved():
+    global inputVector
 
-    # canvas.delete("all")
-    # canvas.create_oval(x-2,y-2,x+2,y+2, fill="green")
+    for p in canvas.find_withtag("selected"):
+        i = (p - 1) * 2
+        coords = canvas.coords(p)
 
-def sliderMoved(e):
-    updateImage()
+        inputVector[0][i] = mapValue(coords[0] + POINT_RADIUS, 0, OUTPUT_RESOLUTION, -3, 3)
+        inputVector[0][i+1] = mapValue(coords[1] + POINT_RADIUS, 0, OUTPUT_RESOLUTION, -3, 3)
+
+    updateImage(inputVector)
 
 def mapValue(value, leftMin, leftMax, rightMin, rightMax):
     # Figure out how 'wide' each range is
@@ -137,26 +177,28 @@ def mapValue(value, leftMin, leftMax, rightMin, rightMax):
 def onAddPoint():
     # pointList.insert(END, "%f,%f" % ( inputVector[0][0], inputVector[0][1] ) )
     pointList.insert(END, "%d" % ( pointList.size()+1 ) )
-    pointsSaved.append( inputVector )
+    pointsSaved.append( np.copy( inputVector ) )
 
 def onListClicked(e):
-    # strPos = pointList.get(pointList.curselection()).split(",")
-    # x = mapValue(float(strPos[0]), -3, 3, 0, OUTPUT_RESOLUTION)
-    # y = mapValue(float(strPos[1]), -3, 3, 0, OUTPUT_RESOLUTION)
-    #
-    # pos = { "x" : x, "y" : y }
-    # xyMoved(pos)
-
     updateImage( pointsSaved[pointList.curselection()[0]] )
+    drawAllPointsPair()
 
 def drawAllPointsPair():
-    canvas.delete("all")
+    needToCreate = True
+    if len(canvas.find_all()) > 0:
+        needToCreate = False
+        # canvas.itemconfig( "selected", fill = COLOR_POINT )
+        # canvas.dtag( "selected" )
 
     for p in range(0, inputVector[0].shape[0] - 1, 2):
         x = mapValue(inputVector[0][p], -3,3, 0, OUTPUT_RESOLUTION)
         y = mapValue(inputVector[0][p+1], -3,3, 0, OUTPUT_RESOLUTION)
 
-        canvas.create_oval(x-2,y-2,x+2,y+2, fill="green")
+        if needToCreate:
+            canvas.create_oval(x-POINT_RADIUS,y-POINT_RADIUS,x+POINT_RADIUS,y+POINT_RADIUS, fill=COLOR_POINT)
+        else:
+            canvas.coords( int(p/2) + 1, x-POINT_RADIUS,y-POINT_RADIUS,x+POINT_RADIUS,y+POINT_RADIUS )
+
 
 # def make_frame(t):
 #     frame_idx = int(np.clip(np.round(t * mp4_fps), 0, num_frames - 1))
@@ -186,7 +228,7 @@ def showFrame(generatedPhotos, index):
         root.after(800, showFrame, generatedPhotos, index+1)
 
 def onSaveVideo():
-    cantInterpolation = 100
+    cantInterpolation = sliderTransition.get()
 
     for pointFrom in range(0, pointList.size()):
         pointTo = pointFrom + 1
@@ -222,12 +264,25 @@ def onSaveVideo():
         #     generatedPhotos.append(photo)
         #
         # showFrame(generatedPhotos, 0)
+def onSaveStill():
+    global recordingCurrentFrame
+    arrayImage.save( "%s/%05d.png" % (PATH_RESULT,recordingCurrentFrame) )
+    recordingCurrentFrame += 1
+
+def onRecord():
+    global recording
+    if not recording:
+        recording = True
+        btnRecord.config(text="Recording...")
+    else :
+        recording = False
+        btnRecord.config(text="Record")
 
 def onRandomClick():
-    updateImage(False)
+    updateImage()
 
 def onLoadFile():
-    global generator, SIZE_LATENT_SPACE, OUTPUT_RESOLUTION
+    global generator, SIZE_LATENT_SPACE, OUTPUT_RESOLUTION, pointsSaved
 
     filePath = filedialog.askopenfilename(initialdir = PATH_LOAD_FILE, title = "Select file")
     with open( filePath, 'rb' ) as file:
@@ -236,6 +291,12 @@ def onLoadFile():
         OUTPUT_RESOLUTION = int( generator.list_layers()[-1][1].shape[2] )
 
         root.title('PGAN Generator - %s' % filePath )
+
+        if canvas:
+            canvas.delete("all")
+        if pointList:
+            pointList.delete(0,tk.END)
+        pointsSaved = []
 
 root = tk.Tk()
 init()
@@ -247,29 +308,37 @@ menubar.add_cascade(label="File", menu=filemenu)
 
 root.config(menu=menubar)
 
-sliderX = tk.Scale(root, from_=0, to=SIZE_LATENT_SPACE-1, length=OUTPUT_RESOLUTION, resolution=1, orient=tk.HORIZONTAL)
-# sliderX.bind("<B1-Motion>", sliderMoved)
-sliderX.grid(row=1,column=1)
-sliderY = tk.Scale(root, from_=0, to=SIZE_LATENT_SPACE-1, length=OUTPUT_RESOLUTION, resolution=1)
-sliderY.set(1)
-# sliderY.bind("<B1-Motion>", sliderMoved)
-sliderY.grid(row=0,column=0)
+# sliderX = tk.Scale(root, from_=0, to=SIZE_LATENT_SPACE-1, length=OUTPUT_RESOLUTION, resolution=1, orient=tk.HORIZONTAL)
+# # sliderX.bind("<B1-Motion>", sliderMoved)
+# sliderX.grid(row=1,column=1)
+# sliderY = tk.Scale(root, from_=0, to=SIZE_LATENT_SPACE-1, length=OUTPUT_RESOLUTION, resolution=1)
+# sliderY.set(1)
+# # sliderY.bind("<B1-Motion>", sliderMoved)
+# sliderY.grid(row=0,column=0)
 
 canvas = tk.Canvas(root,width=OUTPUT_RESOLUTION, height=OUTPUT_RESOLUTION, bg="#000000", cursor="cross")
 canvas.grid(row=0,column=1)
 canvas.bind("<B1-Motion>", xyMoved)
-canvas.bind("<Button 1>", xyMoved)
+canvas.bind("<ButtonRelease-1>", xyMovedFinished)
+canvas.bind("<Button 3>", xyClicked)
 
-photo = generateImage()
+arrayImage = generateImage()
+photo = ImageTk.PhotoImage(image=arrayImage)
+drawAllPointsPair()
 mainImage = Label(root, image=photo)
 mainImage.image = photo #esto es necesario por el garbage
 # mainImage.pack( padx = SIZE_LATENT_SPACE)
 mainImage.grid(row=0,column=2)
 
-# lblCurrentPoint = tk.Label(root, text="RESULT")
-# lblCurrentPoint.grid(row=1,column=2)
 btnRandom = tk.Button(root, text="Random", command=onRandomClick)
 btnRandom.grid(row=1,column=2)
+
+buttonsFrame = tk.Frame(root)
+buttonsFrame.grid(row=1, column=1)
+btnRecord = tk.Button(buttonsFrame, text="Record video", command=onRecord)
+btnRecord.pack(side = LEFT)
+btnSaveStill = tk.Button(buttonsFrame, text="Save still", command=onSaveStill)
+btnSaveStill.pack(side = LEFT)
 
 pointList = tk.Listbox(root, height = 40)
 pointList.grid(row=0,column=3, sticky=S)
@@ -280,5 +349,12 @@ btnAddPoint.grid(row=0, column=3, sticky=N)
 
 btnSaveVideo = tk.Button(root, text= "Save video", command=onSaveVideo)
 btnSaveVideo.grid(row=1, column=3)
+
+sliderTransition = tk.Scale(root, from_=0, to=1000, length=OUTPUT_RESOLUTION, resolution=1)
+sliderTransition.set(300)
+sliderTransition.grid(row=0,column=4)
+
+lblTransition = tk.Label(root, text='Transition')
+lblTransition.grid(row=1,column=4)
 
 root.mainloop()
