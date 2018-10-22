@@ -13,6 +13,8 @@ import tkinter as tk
 import tkinter.ttk as ttk
 from tkinter import *
 from tkinter import filedialog
+from tkinter import simpledialog
+
 #from tkinter import Scale
 import numpy as np
 import pickle
@@ -22,6 +24,7 @@ import scipy
 import threading
 import time
 from PIL import Image, ImageTk
+import subprocess
 
 from scipy.interpolate import interp1d
 
@@ -179,6 +182,12 @@ def onAddPoint():
     pointList.insert(END, "%d" % ( pointList.size()+1 ) )
     pointsSaved.append( np.copy( inputVector ) )
 
+def onRemovePoints():
+    global pointsSaved
+
+    pointList.delete(0,tk.END)
+    pointsSaved = []
+
 def onListClicked(e):
     updateImage( pointsSaved[pointList.curselection()[0]] )
     drawAllPointsPair()
@@ -228,7 +237,16 @@ def showFrame(generatedPhotos, index):
         root.after(800, showFrame, generatedPhotos, index+1)
 
 def onSaveVideo():
+    videoFilename = simpledialog.askstring("Input", "Video filename:",
+                                parent=root, initialvalue="out")
+
+    if videoFilename is None:
+        return
+
+    videoFilename += ".mp4"
+
     cantInterpolation = sliderTransition.get()
+    totalFrames = cantInterpolation * pointList.size()
 
     for pointFrom in range(0, pointList.size()):
         pointTo = pointFrom + 1
@@ -246,16 +264,24 @@ def onSaveVideo():
         y = np.vstack((pointsSaved[pointFrom],pointsSaved[pointTo]))
         f = interp1d( x , y, axis = 0  )
 
-        # arrInterpolation = f( np.linspace(0,1,cantInterpolation+1, endpoint = False) )
         arrInterpolation = f( np.linspace(0,1,cantInterpolation+1, endpoint = True) )
 
-        # for latentSample in arrInterpolation:
         for i in range(0,len(arrInterpolation)):
+            if pointTo == 0 and i == len(arrInterpolation) - 1 :
+                break
+
             latentSample = np.array([arrInterpolation[i]])
             generated = generateFromGAN( latentSample )
             generatedImage = Image.fromarray(generated[0], 'RGB')
-            generatedImage.save( "%s/%05d.png" % (PATH_RESULT,pointFrom*cantInterpolation+i) )
+            currentFrame = pointFrom*cantInterpolation+i+1
+            generatedImage.save( "%s/%05d.png" % (PATH_RESULT,currentFrame) )
 
+            progressBar['value'] = (currentFrame/totalFrames)*100
+            root.update_idletasks()
+
+    subprocess.call(["./imagesToVideo.sh"])
+    os.rename("out.mp4", videoFilename)
+    subprocess.call(["vlc", videoFilename])
         # generatedImages = generateFromGAN( arrInterpolation )
         # generatedPhotos = []
         #
@@ -279,6 +305,7 @@ def onRecord():
         btnRecord.config(text="Record")
 
 def onRandomClick():
+    pointsMoveOriginalCoords = None
     updateImage()
 
 def onLoadFile():
@@ -340,12 +367,21 @@ btnRecord.pack(side = LEFT)
 btnSaveStill = tk.Button(buttonsFrame, text="Save still", command=onSaveStill)
 btnSaveStill.pack(side = LEFT)
 
-pointList = tk.Listbox(root, height = 40)
-pointList.grid(row=0,column=3, sticky=S)
+pointsFrame = tk.Frame(root)
+pointsFrame.grid(row=0,column=3)
+
+btnAddPoint = tk.Button(pointsFrame, text= "Add point", command=onAddPoint)
+btnAddPoint.pack()
+
+pointList = tk.Listbox(pointsFrame, height = 40)
+pointList.pack()
 pointList.bind("<Double-Button-1>", onListClicked)
 
-btnAddPoint = tk.Button(root, text= "Add point", command=onAddPoint)
-btnAddPoint.grid(row=0, column=3, sticky=N)
+btnRmPoints = tk.Button(pointsFrame, text= "Remove points", command=onRemovePoints)
+btnRmPoints.pack()
+
+progressBar = ttk.Progressbar(pointsFrame,orient=HORIZONTAL,length=100,mode='determinate')
+progressBar.pack()
 
 btnSaveVideo = tk.Button(root, text= "Save video", command=onSaveVideo)
 btnSaveVideo.grid(row=1, column=3)
