@@ -14,6 +14,7 @@ import tkinter.ttk as ttk
 from tkinter import *
 from tkinter import filedialog
 from tkinter import simpledialog
+from tkinter import messagebox
 
 #from tkinter import Scale
 import numpy as np
@@ -37,6 +38,7 @@ inputVector = []
 
 PATH_LOAD_FILE = "/media/macramole/stuff/Data/pgan/"
 PATH_RESULT = "./generateResult/"
+PATH_IMAGES_TO_VIDEO = "scriptsImage/imagesToVideo.sh"
 
 lastX = 0
 lastY = 0
@@ -243,7 +245,19 @@ def onSaveVideo():
     if videoFilename is None:
         return
 
+    currentPathResult = os.path.join(PATH_RESULT, videoFilename)
     videoFilename += ".mp4"
+    videoFilename = os.path.join(PATH_RESULT, videoFilename)
+
+    try:
+        os.mkdir(currentPathResult)
+    except:
+        messagebox.showerror("Error", "Path already exist")
+        return
+
+    btnSaveVideo.grid_remove()
+    progressBar['value'] = 0
+    progressBar.grid()
 
     cantInterpolation = sliderTransition.get()
     totalFrames = cantInterpolation * pointList.size()
@@ -274,13 +288,19 @@ def onSaveVideo():
             generated = generateFromGAN( latentSample )
             generatedImage = Image.fromarray(generated[0], 'RGB')
             currentFrame = pointFrom*cantInterpolation+i+1
-            generatedImage.save( "%s/%05d.png" % (PATH_RESULT,currentFrame) )
+            generatedImage.save( "%s/%05d.png" % (currentPathResult,currentFrame) )
 
             progressBar['value'] = (currentFrame/totalFrames)*100
             root.update_idletasks()
 
-    subprocess.call(["./imagesToVideo.sh"])
-    os.rename("out.mp4", videoFilename)
+
+    subprocess.call([PATH_IMAGES_TO_VIDEO, currentPathResult, videoFilename])
+
+    progressBar.grid_remove()
+    root.update_idletasks()
+    btnSaveVideo.grid()
+    root.update_idletasks()
+
     subprocess.call(["vlc", videoFilename])
         # generatedImages = generateFromGAN( arrInterpolation )
         # generatedPhotos = []
@@ -368,29 +388,32 @@ btnSaveStill = tk.Button(buttonsFrame, text="Save still", command=onSaveStill)
 btnSaveStill.pack(side = LEFT)
 
 pointsFrame = tk.Frame(root)
-pointsFrame.grid(row=0,column=3)
+pointsFrame.grid(row=0,column=3, padx = 5)
 
 btnAddPoint = tk.Button(pointsFrame, text= "Add point", command=onAddPoint)
 btnAddPoint.pack()
-
-pointList = tk.Listbox(pointsFrame, height = 40)
+pointList = tk.Listbox(pointsFrame, height = 20, justify=CENTER)
 pointList.pack()
 pointList.bind("<Double-Button-1>", onListClicked)
-
 btnRmPoints = tk.Button(pointsFrame, text= "Remove points", command=onRemovePoints)
 btnRmPoints.pack()
+tk.Label(pointsFrame, text='').pack() #spacer
+lblTransition = tk.Label(pointsFrame, text='Transitions length:')
+lblTransition.pack()
+sliderTransition = tk.Scale(pointsFrame, from_=5, to=1000, resolution=5, orient=tk.HORIZONTAL)
+sliderTransition.set(25)
+sliderTransition.pack(fill=tk.X)
 
-progressBar = ttk.Progressbar(pointsFrame,orient=HORIZONTAL,length=100,mode='determinate')
-progressBar.pack()
 
+progressBar = ttk.Progressbar(root,orient=HORIZONTAL,length=100,mode='determinate')
+# progressBar.pack()
+progressBar.grid(row=1, column=3)
+progressBar.grid_remove()
 btnSaveVideo = tk.Button(root, text= "Save video", command=onSaveVideo)
 btnSaveVideo.grid(row=1, column=3)
 
-sliderTransition = tk.Scale(root, from_=0, to=1000, length=OUTPUT_RESOLUTION, resolution=1)
-sliderTransition.set(300)
-sliderTransition.grid(row=0,column=4)
 
-lblTransition = tk.Label(root, text='Transition')
-lblTransition.grid(row=1,column=4)
+
+
 
 root.mainloop()
