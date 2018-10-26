@@ -11,19 +11,13 @@ Created on Tue Aug  7 14:35:21 2018
 import os
 import tkinter as tk
 import tkinter.ttk as ttk
-from tkinter import *
 from tkinter import filedialog
 from tkinter import simpledialog
 from tkinter import messagebox
-
-#from tkinter import Scale
 import numpy as np
+
 import pickle
 import tensorflow as tf
-import PIL.Image
-import scipy
-import threading
-import time
 from PIL import Image, ImageTk
 import subprocess
 
@@ -112,8 +106,9 @@ def updateImage(newInputVector = None):
     mainImage.image = photo
 
     if recording:
-        arrayImage.save( "%s/%05d.png" % (PATH_RESULT,recordingCurrentFrame) )
-        recordingCurrentFrame+=1
+        # arrayImage.save( "%s/%05d.png" % (PATH_RESULT,recordingCurrentFrame) )
+        # recordingCurrentFrame+=1
+        onAddPoint()
 
 def xyClicked(e):
     global pointsMoveOriginalCoords
@@ -150,7 +145,7 @@ def xyMoved(e):
         canvas.dtag(selectionRectangle, "selected")
         canvas.itemconfig( "selected", fill=COLOR_SELECTED )
 def xyMovedFinished(e):
-    global selectionRectangle
+    global selectionRectangle, pointsMoveOriginalCoords
 
     canvas.delete(selectionRectangle)
     selectionRectangle = None
@@ -181,7 +176,7 @@ def mapValue(value, leftMin, leftMax, rightMin, rightMax):
 
 def onAddPoint():
     # pointList.insert(END, "%f,%f" % ( inputVector[0][0], inputVector[0][1] ) )
-    pointList.insert(END, "%d" % ( pointList.size()+1 ) )
+    pointList.insert(tk.END, "%d" % ( pointList.size()+1 ) )
     pointsSaved.append( np.copy( inputVector ) )
 
 def onRemovePoints():
@@ -238,6 +233,33 @@ def showFrame(generatedPhotos, index):
     if index < 10:
         root.after(800, showFrame, generatedPhotos, index+1)
 
+def calculateDistances():
+    distances = []
+    for pointFrom in range(0, pointList.size()):
+        pointTo = pointFrom + 1
+
+        #loop
+        if pointFrom == pointList.size()-1:
+            pointTo = 0
+
+        dist = np.linalg.norm(pointsSaved[pointTo]-pointsSaved[pointFrom])
+        distances.append(dist)
+
+    return distances
+
+def calculateInterpolationPerPoint(maxInterpolation):
+    distances = calculateDistances()
+    maxDistance = np.max(distances)
+    cantInterpolations = []
+
+    for pointFrom in range(0, pointList.size()):
+        cantInterpolation = mapValue( distances[pointFrom], 0, maxDistance, 1, maxInterpolation )
+        cantInterpolation = int(np.floor(cantInterpolation))
+        cantInterpolations.append(cantInterpolation)
+
+    return cantInterpolations
+
+
 def onSaveVideo():
     videoFilename = simpledialog.askstring("Input", "Video filename:",
                                 parent=root, initialvalue="out")
@@ -259,8 +281,9 @@ def onSaveVideo():
     progressBar['value'] = 0
     progressBar.grid()
 
-    cantInterpolation = sliderTransition.get()
-    totalFrames = cantInterpolation * pointList.size()
+    maxInterpolation = sliderTransition.get()
+    cantInterpolations = calculateInterpolationPerPoint(maxInterpolation)
+    totalFrames = np.sum(cantInterpolations)
 
     for pointFrom in range(0, pointList.size()):
         pointTo = pointFrom + 1
@@ -269,12 +292,9 @@ def onSaveVideo():
         if pointFrom == pointList.size()-1:
             pointTo = 0
 
-        # strPos = []
-        # strPos.append( pointList.get(pointFrom).split(",") )
-        # strPos.append( pointList.get(pointTo).split(",") )
+        cantInterpolation = cantInterpolations[pointFrom]
 
         x = np.array([0,1])
-        # y = np.array(strPos, dtype="float")
         y = np.vstack((pointsSaved[pointFrom],pointsSaved[pointTo]))
         f = interp1d( x , y, axis = 0  )
 
@@ -287,7 +307,7 @@ def onSaveVideo():
             latentSample = np.array([arrInterpolation[i]])
             generated = generateFromGAN( latentSample )
             generatedImage = Image.fromarray(generated[0], 'RGB')
-            currentFrame = pointFrom*cantInterpolation+i+1
+            currentFrame = np.sum( cantInterpolations[0:pointFrom] )+i+1
             generatedImage.save( "%s/%05d.png" % (currentPathResult,currentFrame) )
 
             progressBar['value'] = (currentFrame/totalFrames)*100
@@ -325,6 +345,7 @@ def onRecord():
         btnRecord.config(text="Record")
 
 def onRandomClick():
+    global pointsMoveOriginalCoords
     pointsMoveOriginalCoords = None
     updateImage()
 
@@ -339,29 +360,26 @@ def onLoadFile():
 
         root.title('PGAN Generator - %s' % filePath )
 
-        if canvas:
-            canvas.delete("all")
+        # if canvas:
+        #     canvas.delete("all")
         if pointList:
             pointList.delete(0,tk.END)
         pointsSaved = []
+def onLoadFileMenu():
+    onLoadFile()
+    onRandomClick()
+
+
 
 root = tk.Tk()
 init()
 
 menubar = tk.Menu(root)
 filemenu = tk.Menu(menubar, tearoff=0)
-filemenu.add_command(label="Load file", command=onLoadFile)
+filemenu.add_command(label="Load file", command=onLoadFileMenu)
 menubar.add_cascade(label="File", menu=filemenu)
 
 root.config(menu=menubar)
-
-# sliderX = tk.Scale(root, from_=0, to=SIZE_LATENT_SPACE-1, length=OUTPUT_RESOLUTION, resolution=1, orient=tk.HORIZONTAL)
-# # sliderX.bind("<B1-Motion>", sliderMoved)
-# sliderX.grid(row=1,column=1)
-# sliderY = tk.Scale(root, from_=0, to=SIZE_LATENT_SPACE-1, length=OUTPUT_RESOLUTION, resolution=1)
-# sliderY.set(1)
-# # sliderY.bind("<B1-Motion>", sliderMoved)
-# sliderY.grid(row=0,column=0)
 
 canvas = tk.Canvas(root,width=OUTPUT_RESOLUTION, height=OUTPUT_RESOLUTION, bg="#000000", cursor="cross")
 canvas.grid(row=0,column=1)
@@ -372,7 +390,7 @@ canvas.bind("<Button 3>", xyClicked)
 arrayImage = generateImage()
 photo = ImageTk.PhotoImage(image=arrayImage)
 drawAllPointsPair()
-mainImage = Label(root, image=photo)
+mainImage = tk.Label(root, image=photo)
 mainImage.image = photo #esto es necesario por el garbage
 # mainImage.pack( padx = SIZE_LATENT_SPACE)
 mainImage.grid(row=0,column=2)
@@ -383,29 +401,29 @@ btnRandom.grid(row=1,column=2)
 buttonsFrame = tk.Frame(root)
 buttonsFrame.grid(row=1, column=1)
 btnRecord = tk.Button(buttonsFrame, text="Record video", command=onRecord)
-btnRecord.pack(side = LEFT)
+btnRecord.pack(side = tk.LEFT)
 btnSaveStill = tk.Button(buttonsFrame, text="Save still", command=onSaveStill)
-btnSaveStill.pack(side = LEFT)
+btnSaveStill.pack(side = tk.LEFT)
 
 pointsFrame = tk.Frame(root)
 pointsFrame.grid(row=0,column=3, padx = 5)
 
 btnAddPoint = tk.Button(pointsFrame, text= "Add point", command=onAddPoint)
 btnAddPoint.pack()
-pointList = tk.Listbox(pointsFrame, height = 20, justify=CENTER)
+pointList = tk.Listbox(pointsFrame, height = 20, justify=tk.CENTER)
 pointList.pack()
 pointList.bind("<Double-Button-1>", onListClicked)
 btnRmPoints = tk.Button(pointsFrame, text= "Remove points", command=onRemovePoints)
 btnRmPoints.pack()
 tk.Label(pointsFrame, text='').pack() #spacer
-lblTransition = tk.Label(pointsFrame, text='Transitions length:')
+lblTransition = tk.Label(pointsFrame, text='Max transition length:')
 lblTransition.pack()
 sliderTransition = tk.Scale(pointsFrame, from_=5, to=1000, resolution=5, orient=tk.HORIZONTAL)
 sliderTransition.set(25)
 sliderTransition.pack(fill=tk.X)
 
 
-progressBar = ttk.Progressbar(root,orient=HORIZONTAL,length=100,mode='determinate')
+progressBar = ttk.Progressbar(root,orient=tk.HORIZONTAL,length=100,mode='determinate')
 # progressBar.pack()
 progressBar.grid(row=1, column=3)
 progressBar.grid_remove()
