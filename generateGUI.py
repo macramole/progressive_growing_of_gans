@@ -32,7 +32,8 @@ inputVector = []
 
 PATH_LOAD_FILE = "/media/macramole/stuff/Data/pgan/"
 PATH_RESULT = "./generateResult/"
-PATH_IMAGES_TO_VIDEO = "scriptsImage/imagesToVideo.sh"
+# PATH_IMAGES_TO_VIDEO = "scriptsImage/imagesToVideo.sh"
+PATH_IMAGES_TO_VIDEO = "scriptsImage/imagesToVideoWithLoop.sh"
 
 lastX = 0
 lastY = 0
@@ -49,6 +50,10 @@ pointList = None
 
 recording = False
 recordingCurrentFrame = 0
+
+stillFilename = None
+lastVideoFilename = None
+modelPath = None
 
 arrayImage = None
 #%%
@@ -185,8 +190,16 @@ def onRemovePoints():
     pointList.delete(0,tk.END)
     pointsSaved = []
 
+def onRemovePoint():
+    global pointsSaved
+
+    pointList.delete(tk.END)
+    pointsSaved.pop()
+
 def onListClicked(e):
-    updateImage( pointsSaved[pointList.curselection()[0]] )
+    if recording:
+        onRecord()
+    updateImage( np.copy(pointsSaved[pointList.curselection()[0]]) )
     drawAllPointsPair()
 
 def drawAllPointsPair():
@@ -204,26 +217,6 @@ def drawAllPointsPair():
             canvas.create_oval(x-POINT_RADIUS,y-POINT_RADIUS,x+POINT_RADIUS,y+POINT_RADIUS, fill=COLOR_POINT)
         else:
             canvas.coords( int(p/2) + 1, x-POINT_RADIUS,y-POINT_RADIUS,x+POINT_RADIUS,y+POINT_RADIUS )
-
-
-# def make_frame(t):
-#     frame_idx = int(np.clip(np.round(t * mp4_fps), 0, num_frames - 1))
-#     latents = all_latents[frame_idx]
-#     labels = np.zeros([latents.shape[0], 0], np.float32)
-#     images = Gs.run(latents, labels, minibatch_size=minibatch_size, num_gpus=config.num_gpus, out_mul=127.5, out_add=127.5, out_shrink=image_shrink, out_dtype=np.uint8)
-#     grid = misc.create_image_grid(images, grid_size).transpose(1, 2, 0) # HWC
-#     if image_zoom > 1:
-#         grid = scipy.ndimage.zoom(grid, [image_zoom, image_zoom, 1], order=0)
-#     if grid.shape[2] == 1:
-#         grid = grid.repeat(3, 2) # grayscale => RGB
-#     return grid
-#       ---> esto deberia devolver (width x height x 3) numpy <-- (of 8-bits integers)
-#
-# # Generate video.
-# import moviepy.editor # pip install moviepy
-# result_subdir = misc.create_result_subdir(config.result_dir, config.desc)
-# moviepy.editor.VideoClip(make_frame, duration=duration_sec).write_videofile(os.path.join(result_subdir, mp4), fps=mp4_fps, codec='libx264', bitrate=mp4_bitrate)
-# open(os.path.join(result_subdir, '_done.txt'), 'wt').close()
 
 def showFrame(generatedPhotos, index):
     photo = generatedPhotos[index]
@@ -261,11 +254,26 @@ def calculateInterpolationPerPoint(maxInterpolation):
 
 
 def onSaveVideo():
+    global lastVideoFilename
+
+
+
+    initialFilenameValue = modelPath.split("/")[-2].split("-")[2] + "-"
+    if lastVideoFilename != None:
+        if lastVideoFilename[-2].isdigit():
+            lastNumber = int(lastVideoFilename[-2])
+            lastNumber += 1
+            initialFilenameValue = "%s-%d" % (lastVideoFilename[-2], lastNumber)
+        else:
+            initialFilenameValue = "%s-%d" % (lastVideoFilename, 0)
+
     videoFilename = simpledialog.askstring("Input", "Video filename:",
-                                parent=root, initialvalue="out")
+                                parent=root, initialvalue=initialFilenameValue)
 
     if videoFilename is None:
         return
+
+    lastVideoFilename = videoFilename
 
     currentPathResult = os.path.join(PATH_RESULT, videoFilename)
     videoFilename += ".mp4"
@@ -281,11 +289,14 @@ def onSaveVideo():
     progressBar['value'] = 0
     progressBar.grid()
 
+    root.update_idletasks()
+
     maxInterpolation = sliderTransition.get()
     cantInterpolations = calculateInterpolationPerPoint(maxInterpolation)
     totalFrames = np.sum(cantInterpolations)
+    arrInterpolations = []
 
-    for pointFrom in range(0, pointList.size()):
+    for pointFrom in range(0, pointList.size()-1):
         pointTo = pointFrom + 1
 
         #loop
@@ -299,19 +310,37 @@ def onSaveVideo():
         f = interp1d( x , y, axis = 0  )
 
         arrInterpolation = f( np.linspace(0,1,cantInterpolation+1, endpoint = True) )
+        arrInterpolations += list(arrInterpolation)
 
-        for i in range(0,len(arrInterpolation)):
-            if pointTo == 0 and i == len(arrInterpolation) - 1 :
-                break
+    batch_size = 20
 
-            latentSample = np.array([arrInterpolation[i]])
-            generated = generateFromGAN( latentSample )
-            generatedImage = Image.fromarray(generated[0], 'RGB')
-            currentFrame = np.sum( cantInterpolations[0:pointFrom] )+i+1
+    for i in range(0,len(arrInterpolations), batch_size):
+        end = i + batch_size
+        if end > len(arrInterpolations):
+            end = len(arrInterpolations)
+
+        latentSamples = np.array(arrInterpolations[i:end])
+        generatedImages = generateFromGAN( latentSamples )
+
+        for j, generated in enumerate(generatedImages):
+            generatedImage = Image.fromarray(generated, 'RGB')
+            currentFrame = i+j
             generatedImage.save( "%s/%05d.png" % (currentPathResult,currentFrame) )
 
-            progressBar['value'] = (currentFrame/totalFrames)*100
+            progressBar['value'] = (currentFrame/len(arrInterpolations))*100
             root.update_idletasks()
+
+        # for i in range(0,len(arrInterpolation)):
+            # if pointTo == 0 and i == len(arrInterpolation) - 1 :
+            #     break
+
+            # latentSample = np.array([arrInterpolation[i]])
+            # generated = generateFromGAN( latentSample )
+            # generatedImage = Image.fromarray(generated[0], 'RGB')
+            # currentFrame = np.sum( cantInterpolations[0:pointFrom] )+i+1
+            # generatedImage.save( "%s/%05d.png" % (currentPathResult,currentFrame) )
+
+
 
 
     subprocess.call([PATH_IMAGES_TO_VIDEO, currentPathResult, videoFilename])
@@ -331,8 +360,24 @@ def onSaveVideo():
         #
         # showFrame(generatedPhotos, 0)
 def onSaveStill():
-    global recordingCurrentFrame
-    arrayImage.save( "%s/%05d.png" % (PATH_RESULT,recordingCurrentFrame) )
+    global recordingCurrentFrame, stillFilename
+
+    if stillFilename == None:
+        stillFilename = simpledialog.askstring("Input", "Still directory name:",
+                                parent=root, initialvalue="out")
+    if stillFilename is None:
+        return
+
+    currentPathResult = os.path.join(PATH_RESULT, stillFilename)
+
+    try:
+        os.mkdir(currentPathResult)
+    except:
+        messagebox.showerror("Error", "Path already exist")
+        return
+
+
+    arrayImage.save( "%s/%05d.png" % (currentPathResult,recordingCurrentFrame) )
     recordingCurrentFrame += 1
 
 def onRecord():
@@ -350,15 +395,15 @@ def onRandomClick():
     updateImage()
 
 def onLoadFile():
-    global generator, SIZE_LATENT_SPACE, OUTPUT_RESOLUTION, pointsSaved
+    global generator, SIZE_LATENT_SPACE, OUTPUT_RESOLUTION, pointsSaved, modelPath
 
-    filePath = filedialog.askopenfilename(initialdir = PATH_LOAD_FILE, title = "Select file")
-    with open( filePath, 'rb' ) as file:
+    modelPath = filedialog.askopenfilename(initialdir = PATH_LOAD_FILE, title = "Select file")
+    with open( modelPath, 'rb' ) as file:
         _, _, generator = pickle.load(file)
         SIZE_LATENT_SPACE = int( generator.list_layers()[0][1].shape[1] )
         OUTPUT_RESOLUTION = int( generator.list_layers()[-1][1].shape[2] )
 
-        root.title('PGAN Generator - %s' % filePath )
+        root.title('PGAN Generator - %s' % modelPath )
 
         # if canvas:
         #     canvas.delete("all")
@@ -413,7 +458,9 @@ btnAddPoint.pack()
 pointList = tk.Listbox(pointsFrame, height = 20, justify=tk.CENTER)
 pointList.pack()
 pointList.bind("<Double-Button-1>", onListClicked)
-btnRmPoints = tk.Button(pointsFrame, text= "Remove points", command=onRemovePoints)
+btnRmPoint = tk.Button(pointsFrame, text= "Remove last point", command=onRemovePoint)
+btnRmPoint.pack()
+btnRmPoints = tk.Button(pointsFrame, text= "Remove all points", command=onRemovePoints)
 btnRmPoints.pack()
 tk.Label(pointsFrame, text='').pack() #spacer
 lblTransition = tk.Label(pointsFrame, text='Max transition length:')
@@ -435,3 +482,28 @@ btnSaveVideo.grid(row=1, column=3)
 
 
 root.mainloop()
+
+
+
+
+
+
+
+# def make_frame(t):
+#     frame_idx = int(np.clip(np.round(t * mp4_fps), 0, num_frames - 1))
+#     latents = all_latents[frame_idx]
+#     labels = np.zeros([latents.shape[0], 0], np.float32)
+#     images = Gs.run(latents, labels, minibatch_size=minibatch_size, num_gpus=config.num_gpus, out_mul=127.5, out_add=127.5, out_shrink=image_shrink, out_dtype=np.uint8)
+#     grid = misc.create_image_grid(images, grid_size).transpose(1, 2, 0) # HWC
+#     if image_zoom > 1:
+#         grid = scipy.ndimage.zoom(grid, [image_zoom, image_zoom, 1], order=0)
+#     if grid.shape[2] == 1:
+#         grid = grid.repeat(3, 2) # grayscale => RGB
+#     return grid
+#       ---> esto deberia devolver (width x height x 3) numpy <-- (of 8-bits integers)
+#
+# # Generate video.
+# import moviepy.editor # pip install moviepy
+# result_subdir = misc.create_result_subdir(config.result_dir, config.desc)
+# moviepy.editor.VideoClip(make_frame, duration=duration_sec).write_videofile(os.path.join(result_subdir, mp4), fps=mp4_fps, codec='libx264', bitrate=mp4_bitrate)
+# open(os.path.join(result_subdir, '_done.txt'), 'wt').close()
